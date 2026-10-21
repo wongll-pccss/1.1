@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>English Flashcard Studio - Spaced Repetition Portal</title>
+    <!-- Tailwind CSS for modern responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for clean icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></link>
+    <!-- JSZip Library for generating client-side .apkg files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Firebase SDK v9 Compatibility Imports -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        .perspective { perspective: 1000px; }
+        .preserve-3d { transform-style: preserve-3d; transition: transform 0.5s ease; }
+        .flipped { transform: rotateY(180deg); }
+        .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-800 pb-16">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-blue-600 text-white shadow-md py-4 px-4 sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-graduation-cap text-3xl"></i>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">English Flashcard Studio</h1>
+                    <p class="text-xs text-blue-100">Spaced Repetition Portal</p>
+                </div>
+            </div>
+
+            <!-- View switcher and Auth actions -->
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- Navigation Switchers -->
+                <div class="flex items-center bg-blue-700/80 p-1 rounded-xl gap-1 mr-2">
+                    <button id="nav-review" onclick="switchView('review')" class="py-2 px-3 rounded-lg font-semibold text-xs transition bg-white text-blue-700 shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-clock-rotate-left"></i> Review Due
+                        <span id="due-counter-badge" class="bg-emerald-400 text-slate-900 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">0</span>
+                    </button>
+                    <button id="nav-studio" onclick="switchView('studio')" class="py-2 px-3 rounded-lg font-semibold text-xs transition text-white hover:bg-blue-600 flex items-center gap-1.5">
+                        <i class="fa-solid fa-layer-group"></i> Teacher Mode
+                    </button>
+                </div>
+
+                <!-- Google Auth UI elements -->
+                <div id="auth-status" class="text-xs font-semibold">
+                    <button onclick="signInWithGoogle()" class="bg-white text-slate-700 hover:bg-slate-100 py-2 px-3 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+                        <i class="fa-brands fa-google text-red-500"></i> Sign In with Google
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==================== SIGN-IN WALL FOR STUDENTS ==================== -->
+    <div id="signin-wall" class="max-w-md mx-auto mt-20 px-4 text-center">
+        <div class="bg-white rounded-3xl p-8 border border-slate-100 shadow-md">
+            <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto text-2xl mb-4">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 class="text-xl font-bold text-slate-900 mb-1">Student Study Portal</h2>
+            <p class="text-xs text-slate-500 max-w-sm mx-auto mb-6">
+                Please sign in with your school Google account to load your personalized decks and save your spaced repetition progress.
+            </p>
+            <button onclick="signInWithGoogle()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-xl shadow-sm transition text-sm flex items-center justify-center gap-2">
+                <i class="fa-brands fa-google text-red-400"></i> Sign In with Google
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN APP WRAPPER (HIDDEN UNTIL AUTHENTICATED) -->
+    <div id="main-content-app" class="hidden mt-6">
+
+        <!-- ==================== VIEW 1: STUDY COMPONENT (DEFAULT HOME PAGE) ==================== -->
+        <main id="view-review" class="max-w-2xl mx-auto px-4">
+            
+            <!-- Review Summary Bar -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-6 flex flex-wrap justify-between items-center gap-3">
+                <div>
+                    <!-- Active Deck Select in Study Mode -->
+                    <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Study Deck</label>
+                    <select id="review-deck-select" onchange="handleReviewDeckChange()" class="px-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold">
+                        <!-- Dynamically Loaded Decks -->
+                    </select>
+                </div>
+                <div class="text-right flex flex-col items-end gap-1">
+                    <span id="session-progress" class="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">0 of 0</span>
+                    <span id="review-subtitle" class="text-[10px] text-slate-400 font-medium">Spaced Repetition Scheduler</span>
+                </div>
+            </div>
+
+            <!-- ACTIVE CARD STUDY CONTAINER -->
+            <div id="study-container" class="relative">
+                
+                <!-- Flashcard Display Box -->
+                <div class="bg-white rounded-3xl shadow-md border border-slate-100 min-h-[380px] p-8 flex flex-col justify-between text-center relative overflow-hidden transition-all duration-300">
+                    
+                    <!-- Card Meta Header -->
+                    <div class="flex justify-between items-center text-xs border-b pb-3 border-slate-100">
+                        <span id="study-panel-label" class="font-bold uppercase tracking-wider text-blue-500 bg-blue-50 px-2.5 py-1 rounded-full text-[10px]">Front Prompt</span>
+                        <div id="study-audio-container"></div>
+                    </div>
+
+                    <!-- Main Card Body -->
+                    <div class="my-auto py-6 flex flex-col items-center justify-center">
+                        <div id="study-image-container" class="mb-4"></div>
+                        <div id="study-text" class="text-2xl font-bold text-slate-800 break-words max-w-full"></div>
+                        
+                        <!-- Back Answer Section (Hidden until revealed) -->
+                        <div id="study-back-section" class="hidden mt-6 pt-6 border-t border-slate-100 w-full animate-in fade-in duration-300">
+                            <span class="text-[10px] uppercase font-bold tracking-wider text-emerald-600 bg-emerald-5  px-2 py-0.5 rounded-full inline-block mb-3">Answer / Definition</span>
+                            <div id="study-back-image-container" class="mb-3"></div>
+                            <div id="study-back-text" class="text-base text-slate-600 font-medium leading-relaxed max-w-lg mx-auto"></div>
+                            <div id="study-back-audio-container" class="mt-3"></div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Trigger: Show Answer Button -->
+                    <div id="show-answer-box" class="pt-4 border-t border-slate-100">
+                        <button onclick="revealAnswer()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-xl shadow-sm transition text-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-eye"></i> Show Answer
+                        </button>
+                    </div>
+
+                    <!-- Bottom Trigger: 4-Scale SM-2 Rating Buttons -->
+                    <div id="rating-buttons-box" class="hidden pt-4 border-t border-slate-100">
+                        <p class="text-[11px] text-slate-400 mb-2 font-medium">How easily did you recall this?</p>
+                        <div class="grid grid-cols-4 gap-2">
+                            <button onclick="handleRating(1)" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 transition">
+                                <span class="text-xs font-bold">Again</span>
+                                <span class="text-[10px] opacity-75 mt-0.5">&lt; 1 day</span>
+                            </button>
+                            <button onclick="handleRating(3)" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 transition">
+                                <span class="text-xs font-bold">Hard</span>
+                                <span class="text-[10px] opacity-75 mt-0.5">1-2 days</span>
+                            </button>
+                            <button onclick="handleRating(4)" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 transition">
+                                <span class="text-xs font-bold">Good</span>
+                                <span class="text-[10px] opacity-75 mt-0.5">3-6 days</span>
+                            </button>
+                            <button onclick="handleRating(5)" class="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition">
+                                <span class="text-xs font-bold">Easy</span>
+                                <span class="text-[10px] opacity-75 mt-0.5">&gt; 7 days</span>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- COMPLETION SCREEN -->
+            <div id="completion-screen" class="bg-white rounded-3xl shadow-sm border border-slate-100 p-12 text-center hidden">
+                <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-2xl mb-4">
+                    <i class="fa-solid fa-check"></i>
+                </div>
+                <h3 class="text-xl font-bold text-slate-900 mb-1">All caught up!</h3>
+                <p class="text-xs text-slate-500 max-w-sm mx-auto mb-6">
+                    All scheduled reviews for this deck have been completed. Study again tomorrow!
+                </p>
+                <div class="flex flex-wrap justify-center gap-3">
+                    <button onclick="startPracticeAll()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition shadow-sm">
+                        <i class="fa-solid fa-dumbbell mr-1"></i> Practice All Cards Anyway
+                    </button>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- ==================== VIEW 2: TEACHER STUDIO (DECK CREATOR, CARD CREATOR & LIST) ==================== -->
+        <main id="view-studio" class="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-8 hidden">
+            
+            <!-- LEFT COLUMN: DECK SELECTOR & CARD CREATORS (5 cols) -->
+            <section class="lg:col-span-5 flex flex-col gap-5">
+                
+                <!-- DECK CREATION & SELECTION MANAGEMENT -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col gap-4">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-folder-closed text-blue-600"></i> Deck Management
+                    </h2>
+                    
+                    <!-- Deck Selector Dropdown -->
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-600 mb-1">Select Active Studio Deck</label>
+                        <div class="flex gap-2">
+                            <select id="deck-select" onchange="handleDeckSelectionChange()" class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                <!-- Dynamically Loaded -->
+                            </select>
+                            <button onclick="deleteCurrentDeck()" class="text-red-500 hover:text-red-700 p-2 border border-slate-200 hover:bg-red-50 rounded-lg transition" title="Delete current deck">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    <!-- Quick Deck Creation Input -->
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-600 mb-1">Create New Vocabulary Deck</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="new-deck-name" placeholder="e.g. Unit 1 Vocab" class="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-xs">
+                            <button onclick="createNewDeck()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 rounded-lg text-xs transition shadow-sm flex items-center gap-1">
+                                <i class="fa-solid fa-folder-plus"></i> Create
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tab Switcher (Card Inputs) -->
+                <div class="bg-white rounded-xl shadow-sm p-1.5 flex gap-1">
+                    <button id="tab-single" onclick="switchTab('single')" class="flex-1 py-2 px-3 rounded-lg font-medium text-xs transition bg-blue-600 text-white shadow-sm">
+                        <i class="fa-solid fa-plus mr-1"></i>Create Single Card
+                    </button>
+                    <button id="tab-bulk" onclick="switchTab('bulk')" class="flex-1 py-2 px-3 rounded-lg font-medium text-xs transition text-slate-600 hover:bg-slate-100">
+                        <i class="fa-solid fa-file-import mr-1"></i>Paste Excel / CSV
+                    </button>
+                </div>
+
+                <!-- Single Card Creator Form -->
+                <div id="form-single" class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col gap-4">
+                    <h2 class="text-sm font-bold text-slate-900 border-b pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-pen-to-square text-blue-600"></i> New Card Information
+                    </h2>
+
+                    <!-- Front Side -->
+                    <div class="space-y-2.5">
+                        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Front Panel (Word / Prompt)</h3>
+                        <div>
+                            <input type="text" id="front-text" placeholder="e.g. Persevere" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[11px]">
+                                <i class="fa-solid fa-image text-slate-400 mb-1"></i>
+                                <span id="front-image-label" class="text-slate-500 truncate max-w-[120px]">Upload Photo</span>
+                                <input type="file" id="front-image-file" accept="image/*" onchange="handleImageUpload(this, 'front')" class="hidden">
+                            </label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[11px]">
+                                <i class="fa-solid fa-microphone text-slate-400 mb-1"></i>
+                                <span id="front-audio-label" class="text-slate-500 truncate max-w-[120px]">Upload Audio</span>
+                                <input type="file" id="front-audio-file" accept="audio/*" onchange="handleAudioUpload(this, 'front')" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    <!-- Back Side -->
+                    <div class="space-y-2.5">
+                        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Back Panel (Definition / Notes)</h3>
+                        <div>
+                            <textarea id="back-text" rows="2" placeholder="e.g. Continue in a course of action even in the face of difficulty (verb)" class="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs resize-none"></textarea>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[11px]">
+                                <i class="fa-solid fa-image text-slate-400 mb-1"></i>
+                                <span id="back-image-label" class="text-slate-500 truncate max-w-[120px]">Upload Photo</span>
+                                <input type="file" id="back-image-file" accept="image/*" onchange="handleImageUpload(this, 'back')" class="hidden">
+                            </label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[11px]">
+                                <i class="fa-solid fa-microphone text-slate-400 mb-1"></i>
+                                <span id="back-audio-label" class="text-slate-500 truncate max-w-[120px]">Upload Audio</span>
+                                <input type="file" id="back-audio-file" accept="audio/*" onchange="handleAudioUpload(this, 'back')" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+
+                    <button onclick="addSingleCard()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition shadow-sm text-xs flex items-center justify-center gap-2 mt-1">
+                        <i class="fa-solid fa-plus-circle"></i> Add to Selected Deck
+                    </button>
+                </div>
+
+                <!-- Bulk Importer (Paste Zone) -->
+                <div id="form-bulk" class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col gap-3.5 hidden">
+                    <h2 class="text-sm font-bold text-slate-900 border-b pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-file-csv text-emerald-600"></i> Excel / CSV Bulk Importer
+                    </h2>
+                    <p class="text-[11px] text-slate-500">
+                        Paste rows copied directly from Excel or Google Sheets. Format: <strong>Front Text</strong> separated by a tab or comma from <strong>Back Text</strong>.
+                    </p>
+                    <textarea id="bulk-paste" rows="7" placeholder="Accomplish&#x9;To achieve something successfully&#10;Acquisition&#x9;The learning of a skill&#10;Inherent&#x9;Existing as a permanent attribute" class="w-full font-mono text-xs px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
+                    <button onclick="importBulkCards()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg transition shadow-sm text-xs flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-bolt"></i> Process and Import Rows
+                    </button>
+                </div>
+
+            </section>
+
+            <!-- RIGHT COLUMN: DECK OVERVIEW (7 cols) -->
+            <section class="lg:col-span-7 flex flex-col gap-5">
+                
+                <!-- Controls bar -->
+                <div class="bg-white rounded-xl shadow-sm p-4 flex flex-wrap justify-between items-center gap-3">
+                    <div>
+                        <h2 class="font-bold text-slate-900 text-sm">Deck Collection: <span id="active-deck-title" class="text-blue-600">Default Deck</span></h2>
+                        <p class="text-xs text-slate-500"><span id="card-count" class="font-bold text-blue-600">0</span> total flashcards</p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button onclick="exportAnkiAPKG()" class="bg-slate-900 text-white hover:bg-slate-800 text-xs font-semibold py-2 px-3 rounded-lg shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-box-archive text-blue-400"></i> Export .apkg
+                        </button>
+                        <button onclick="exportCSV()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold py-2 px-3 rounded-lg shadow-sm transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-download text-slate-400"></i> Export CSV
+                        </button>
+                        <button onclick="clearCurrentDeckCards()" class="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold py-2 px-3 rounded-lg transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-trash-can"></i> Clear Cards
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Flashcards Grid -->
+                <div id="deck-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div id="empty-state" class="col-span-full bg-white border border-dashed border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+                        <i class="fa-solid fa-box-open text-4xl mb-3 text-slate-300"></i>
+                        <p class="text-sm font-medium">This deck is currently empty</p>
+                        <p class="text-xs text-slate-400 mt-1">Create cards on the left panel to fill this specific deck.</p>
+                    </div>
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+    <!-- Interactive Card Editor Modal with Media Uploads -->
+    <div id="edit-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-xl border w-full max-w-lg overflow-hidden animate-in fade-in duration-200">
+            <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-2"><i class="fa-solid fa-edit text-blue-400"></i> Edit Flashcard</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-times text-base"></i></button>
+            </div>
+            <div class="p-6 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
+                <input type="hidden" id="edit-card-id">
+                
+                <!-- FRONT PANEL EDIT -->
+                <div class="space-y-2">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Front Panel</span>
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-500 mb-0.5">Word / Prompt Text</label>
+                        <input type="text" id="edit-front-text" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-500 mb-1">Upload Photo</label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[10px]">
+                                <i class="fa-solid fa-image text-slate-400 mb-0.5"></i>
+                                <span id="edit-front-image-label" class="text-slate-500 truncate max-w-[120px]">Change Image</span>
+                                <input type="file" id="edit-front-image-file" accept="image/*" onchange="handleEditMediaUpload(this, 'front', 'Image')" class="hidden">
+                            </label>
+                            <button id="btn-remove-front-image" onclick="removeEditMedia('front', 'Image')" class="hidden mt-1 text-[10px] text-red-500 hover:underline flex items-center gap-1"><i class="fa-solid fa-trash"></i> Remove Image</button>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-500 mb-1">Upload Audio</label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[10px]">
+                                <i class="fa-solid fa-microphone text-slate-400 mb-0.5"></i>
+                                <span id="edit-front-audio-label" class="text-slate-500 truncate max-w-[120px]">Change Audio</span>
+                                <input type="file" id="edit-front-audio-file" accept="audio/*" onchange="handleEditMediaUpload(this, 'front', 'Audio')" class="hidden">
+                            </label>
+                            <button id="btn-remove-front-audio" onclick="removeEditMedia('front', 'Audio')" class="hidden mt-1 text-[10px] text-red-500 hover:underline flex items-center gap-1"><i class="fa-solid fa-trash"></i> Remove Audio</button>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="border-slate-100">
+
+                <!-- BACK PANEL EDIT -->
+                <div class="space-y-2">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Back Panel</span>
+                    <div>
+                        <label class="block text-[10px] font-medium text-slate-500 mb-0.5">Definition / Answers</label>
+                        <textarea id="edit-back-text" rows="2" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs resize-none"></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-500 mb-1">Upload Photo</label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[10px]">
+                                <i class="fa-solid fa-image text-slate-400 mb-0.5"></i>
+                                <span id="edit-back-image-label" class="text-slate-500 truncate max-w-[120px]">Change Image</span>
+                                <input type="file" id="edit-back-image-file" accept="image/*" onchange="handleEditMediaUpload(this, 'back', 'Image')" class="hidden">
+                            </label>
+                            <button id="btn-remove-back-image" onclick="removeEditMedia('back', 'Image')" class="hidden mt-1 text-[10px] text-red-500 hover:underline flex items-center gap-1"><i class="fa-solid fa-trash"></i> Remove Image</button>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-500 mb-1">Upload Audio</label>
+                            <label class="flex flex-col items-center justify-center border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 cursor-pointer text-[10px]">
+                                <i class="fa-solid fa-microphone text-slate-400 mb-0.5"></i>
+                                <span id="edit-back-audio-label" class="text-slate-500 truncate max-w-[120px]">Change Audio</span>
+                                <input type="file" id="edit-back-audio-file" accept="audio/*" onchange="handleEditMediaUpload(this, 'back', 'Audio')" class="hidden">
+                            </label>
+                            <button id="btn-remove-back-audio" onclick="removeEditMedia('back', 'Audio')" class="hidden mt-1 text-[10px] text-red-500 hover:underline flex items-center gap-1"><i class="fa-solid fa-trash"></i> Remove Audio</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 border-t pt-4 mt-2">
+                    <button onclick="closeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-lg transition">Cancel</button>
+                    <button onclick="saveCardEdits()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition shadow-sm">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // ==================== FIREBASE CLOUD INITIALIZATION ====================
+        const firebaseConfig = {
+          apiKey: "AIzaSyBfGDKJ3DS4-lZPUsCsv6NZDtE-DgdO9qA",
+          authDomain: "english-flashcard-studio.firebaseapp.com",
+          projectId: "english-flashcard-studio",
+          storageBucket: "english-flashcard-studio.firebasestorage.app",
+          messagingSenderId: "513116748317",
+          appId: "1:513116748317:web:910b83c110074d47ca64f4",
+          measurementId: "G-5LNQ2R069W"
+        };
+
+        // Initialize Firebase Compatibility Services
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ==================== APP STATE & VARIABLES ====================
+        window.decks = { "default": { name: "Default Deck", cards: [] } };
+        window.activeDeckId = 'default';
+        window.currentUser = null;
+
+        window.tempMedia = { frontImage: '', frontAudio: '', backImage: '', backAudio: '' };
+        window.editMediaCache = { frontImage: '', frontAudio: '', backImage: '', backAudio: '' };
+        
+        window.reviewQueue = [];
+        window.currentQueueIndex = 0;
+        window.isPracticeMode = false;
+
+        // ==================== AUTHENTICATION & LOGIN FLOW ====================
+
+        window.signInWithGoogle = function() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider)
+                .then((result) => {
+                    console.log("Logged in successfully:", result.user.displayName);
+                })
+                .catch((error) => {
+                    console.error("Auth error:", error);
+                    alert("Sign-in failed. Please ensure you are opening this file on a secure local host or deployed domain (e.g. GitHub Pages).");
+                });
+        };
+
+        window.signOutUser = function() {
+            auth.signOut().then(() => {
+                window.location.reload();
+            });
+        };
+
+        // Real-time auth observer
+        auth.onAuthStateChanged(user => {
+            const wall = document.getElementById('signin-wall');
+            const app = document.getElementById('main-content-app');
+            const authStatus = document.getElementById('auth-status');
+
+            if (user) {
+                window.currentUser = user;
+                wall.classList.add('hidden');
+                app.classList.remove('hidden');
+
+                authStatus.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <img src="${user.photoURL}" class="w-7 h-7 rounded-full border border-blue-400">
+                        <span class="text-xs font-bold hidden md:inline">${user.displayName}</span>
+                        <button onclick="signOutUser()" class="bg-blue-700 hover:bg-blue-800 text-[10px] uppercase font-bold py-1.5 px-2.5 rounded-lg transition">Sign Out</button>
+                    </div>
+                `;
+
+                // Load synchronized decks from Cloud Firestore
+                loadCloudData();
+            } else {
+                window.currentUser = null;
+                wall.classList.remove('hidden');
+                app.classList.add('hidden');
+            }
+        });
+
+        // ==================== CLOUD DATABASE SYNC ====================
+
+        function loadCloudData() {
+            if (!window.currentUser) return;
+
+            db.collection("users").doc(window.currentUser.uid).get()
+                .then(doc => {
+                    if (doc.exists) {
+                        const data = doc.data();
+                        if (data.decks) {
+                            window.decks = data.decks;
+                        }
+                        if (data.activeDeckId && window.decks[data.activeDeckId]) {
+                            window.activeDeckId = data.activeDeckId;
+                        } else {
+                            window.activeDeckId = Object.keys(window.decks)[0] || "default";
+                        }
+                    } else {
+                        // Create default setup for new user
+                        window.decks = { "default": { name: "Default Deck", cards: [] } };
+                        window.activeDeckId = "default";
+                        saveToStorage();
+                    }
+
+                    // Build layout options
+                    window.populateDeckSelector();
+                    window.populateReviewDeckSelector();
+                    window.updateDueCounters();
+                    
+                    // REVIEW mode is now the home view by default
+                    window.switchView('review');
+                })
+                .catch(err => {
+                    console.error("Error reading Firestore data:", err);
+                });
+        }
+
+        window.saveToStorage = function() {
+            if (!window.currentUser) return;
+
+            // Sync to Google Cloud
+            db.collection("users").doc(window.currentUser.uid).set({
+                decks: window.decks,
+                activeDeckId: window.activeDeckId,
+                lastSyncTime: firebase.firestore.FieldValue.serverTimestamp()
+            })
+            .then(() => {
+                console.log("Cloud sync completed.");
+            })
+            .catch(err => {
+                console.error("Firestore sync write failed:", err);
+            });
+
+            window.updateDueCounters();
+        };
+
+        // ==================== GLOBAL LAYOUT CONTROLLER FUNCTIONS ====================
+        
+        window.switchTab = function(tabType) {
+            const btnSingle = document.getElementById('tab-single');
+            const btnBulk = document.getElementById('tab-bulk');
+            const formSingle = document.getElementById('form-single');
+            const formBulk = document.getElementById('form-bulk');
+
+            if (tabType === 'single') {
+                btnSingle.className = "flex-1 py-2 px-3 rounded-lg font-medium text-xs transition bg-blue-600 text-white shadow-sm";
+                btnBulk.className = "flex-1 py-2 px-3 rounded-lg font-medium text-xs transition text-slate-600 hover:bg-slate-100";
+                formSingle.classList.remove('hidden');
+                formBulk.classList.add('hidden');
+            } else {
+                btnSingle.className = "flex-1 py-2 px-3 rounded-lg font-medium text-xs transition text-slate-600 hover:bg-slate-100";
+                btnBulk.className = "flex-1 py-2 px-3 rounded-lg font-medium text-xs transition bg-emerald-600 text-white shadow-sm";
+                formSingle.classList.add('hidden');
+                formBulk.classList.remove('hidden');
+            }
+        };
+
+        window.switchView = function(viewName) {
+            const studioView = document.getElementById('view-studio');
+            const reviewView = document.getElementById('view-review');
+            const navStudio = document.getElementById('nav-studio');
+            const navReview = document.getElementById('nav-review');
+
+            if (viewName === 'studio') {
+                studioView.classList.remove('hidden');
+                reviewView.classList.add('hidden');
+                navStudio.className = "py-2 px-4 rounded-lg font-semibold text-xs transition bg-white text-blue-700 shadow-sm flex items-center gap-1.5";
+                navReview.className = "py-2 px-4 rounded-lg font-semibold text-xs transition text-white hover:bg-blue-600 flex items-center gap-2";
+                window.renderDeck();
+            } else {
+                studioView.classList.add('hidden');
+                reviewView.classList.remove('hidden');
+                navReview.className = "py-2 px-4 rounded-lg font-semibold text-xs transition bg-white text-blue-700 shadow-sm flex items-center gap-2";
+                navStudio.className = "py-2 px-4 rounded-lg font-semibold text-xs transition text-white hover:bg-blue-600 flex items-center gap-1.5";
+                window.initReviewSession();
+            }
+        };
+
+        // Switch active deck directly in Study/Review View
+        window.handleReviewDeckChange = function() {
+            const selector = document.getElementById('review-deck-select');
+            window.activeDeckId = selector.value;
+            window.saveToStorage();
+            
+            // Sync up selector in Teacher Mode
+            document.getElementById('deck-select').value = window.activeDeckId;
+            window.initReviewSession();
+        };
+
+        window.createNewDeck = function() {
+            const input = document.getElementById('new-deck-name');
+            const name = input.value.trim();
+
+            if (!name) {
+                alert("Please enter a valid deck name.");
+                return;
+            }
+
+            const id = 'deck-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+            window.decks[id] = { name: name, cards: [] };
+            window.activeDeckId = id;
+            input.value = '';
+            
+            window.saveToStorage();
+            window.populateDeckSelector();
+            window.populateReviewDeckSelector();
+            window.renderDeck();
+            alert(`Created and switched to "${name}" successfully!`);
+        };
+
+        window.deleteCurrentDeck = function() {
+            const deckIds = Object.keys(window.decks);
+            if (deckIds.length <= 1) {
+                alert("You must keep at least one active deck. Cannot delete the only deck.");
+                return;
+            }
+
+            const deckName = window.decks[window.activeDeckId].name;
+            if (confirm(`Are you sure you want to delete the deck "${deckName}" and ALL of its cards?`)) {
+                delete window.decks[window.activeDeckId];
+                window.activeDeckId = Object.keys(window.decks)[0];
+                window.saveToStorage();
+                window.populateDeckSelector();
+                window.populateReviewDeckSelector();
+                window.renderDeck();
+            }
+        };
+
+        window.handleDeckSelectionChange = function() {
+            const selector = document.getElementById('deck-select');
+            window.activeDeckId = selector.value;
+            window.saveToStorage();
+            
+            // Sync review selection
+            document.getElementById('review-deck-select').value = window.activeDeckId;
+            window.renderDeck();
+        };
+
+        window.clearCurrentDeckCards = function() {
+            const deckName = window.decks[window.activeDeckId].name;
+            if (confirm(`Erase ALL cards in "${deckName}"?`)) {
+                window.decks[window.activeDeckId].cards = [];
+                window.saveToStorage();
+                window.populateDeckSelector();
+                window.populateReviewDeckSelector();
+                window.renderDeck();
+            }
+        };
+
+        // --- ATTACHMENT DRAG AND DROPS & UPLOADS ---
+        window.handleImageUpload = function(input, panel) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.tempMedia[panel + 'Image'] = e.target.result;
+                document.getElementById(`${panel}-image-label`).textContent = file.name;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.handleAudioUpload = function(input, panel) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.tempMedia[panel + 'Audio'] = e.target.result;
+                document.getElementById(`${panel}-audio-label`).textContent = file.name;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.handleEditMediaUpload = function(input, panel, type) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                window.editMediaCache[panel + type] = e.target.result;
+                document.getElementById(`edit-${panel}-${type.toLowerCase()}-label`).textContent = file.name;
+                document.getElementById(`btn-remove-${panel}-${type.toLowerCase()}`).classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.removeEditMedia = function(panel, type) {
+            window.editMediaCache[panel + type] = '';
+            document.getElementById(`edit-${panel}-${type.toLowerCase()}-file`).value = '';
+            document.getElementById(`edit-${panel}-${type.toLowerCase()}-label`).textContent = 'Upload ' + type;
+            document.getElementById(`btn-remove-${panel}-${type.toLowerCase()}`).classList.add('hidden');
+        };
+
+        // --- SYSTEM DECK CARD MUTATIONS ---
+        window.addSingleCard = function() {
+            const frontText = document.getElementById('front-text').value.trim();
+            const backText = document.getElementById('back-text').value.trim();
+            if (!frontText && !backText) {
+                alert("Please add at least some text content.");
+                return;
+            }
+
+            const card = {
+                id: 'card-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+                front: { text: frontText, image: window.tempMedia.frontImage, audio: window.tempMedia.frontAudio },
+                back: { text: backText, image: window.tempMedia.backImage, audio: window.tempMedia.backAudio },
+                repetitions: 0,
+                interval: 0,
+                easiness: 2.5,
+                dueDate: new Date().toISOString()
+            };
+
+            window.decks[window.activeDeckId].cards.push(card);
+            window.saveToStorage();
+            window.populateDeckSelector();
+            window.populateReviewDeckSelector();
+            window.renderDeck();
+            window.clearSingleForm();
+        };
+
+        window.importBulkCards = function() {
+            const text = document.getElementById('bulk-paste').value.trim();
+            if (!text) {
+                alert("Please paste data to import.");
+                return;
+            }
+
+            const lines = text.split('\n');
+            let addedCount = 0;
+
+            lines.forEach(line => {
+                let parts = line.includes('\t') ? line.split('\t') : (line.includes(',') ? line.split(',') : [line]);
+                const frontVal = parts[0]?.trim() || '';
+                const backVal = parts[1]?.trim() || '';
+
+                if (frontVal || backVal) {
+                    window.decks[window.activeDeckId].cards.push({
+                        id: 'card-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+                        front: { text: frontVal, image: '', audio: '' },
+                        back: { text: backVal, image: '', audio: '' },
+                        repetitions: 0,
+                        interval: 0,
+                        easiness: 2.5,
+                        dueDate: new Date().toISOString()
+                    });
+                    addedCount++;
+                }
+            });
+
+            window.saveToStorage();
+            window.populateDeckSelector();
+            window.populateReviewDeckSelector();
+            window.renderDeck();
+            document.getElementById('bulk-paste').value = '';
+            alert(`Imported ${addedCount} cards successfully!`);
+            window.switchTab('single');
+        };
+
+        window.deleteCard = function(id, event) {
+            event.stopPropagation();
+            if (confirm("Delete this card?")) {
+                window.decks[window.activeDeckId].cards = window.decks[window.activeDeckId].cards.filter(card => card.id !== id);
+                window.saveToStorage();
+                window.populateDeckSelector();
+                window.populateReviewDeckSelector();
+                window.renderDeck();
+            }
+        };
+
+        window.openEditModal = function(id, event) {
+            event.stopPropagation();
+            const card = window.decks[window.activeDeckId].cards.find(c => c.id === id);
+            if (!card) return;
+
+            document.getElementById('edit-card-id').value = card.id;
+            document.getElementById('edit-front-text').value = card.front.text;
+            document.getElementById('edit-back-text').value = card.back.text;
+
+            window.editMediaCache = {
+                frontImage: card.front.image || '',
+                frontAudio: card.front.audio || '',
+                backImage: card.back.image || '',
+                backAudio: card.back.audio || ''
+            };
+
+            window.updateEditFieldUI('front', 'Image');
+            window.updateEditFieldUI('front', 'Audio');
+            window.updateEditFieldUI('back', 'Image');
+            window.updateEditFieldUI('back', 'Audio');
+
+            document.getElementById('edit-modal').classList.remove('hidden');
+        };
+
+        window.closeModal = function() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        };
+
+        window.saveCardEdits = function() {
+            const id = document.getElementById('edit-card-id').value;
+            const cardIndex = window.decks[window.activeDeckId].cards.findIndex(c => c.id === id);
+            
+            if (cardIndex !== -1) {
+                window.decks[window.activeDeckId].cards[cardIndex].front.text = document.getElementById('edit-front-text').value.trim();
+                window.decks[window.activeDeckId].cards[cardIndex].back.text = document.getElementById('edit-back-text').value.trim();
+                
+                window.decks[window.activeDeckId].cards[cardIndex].front.image = window.editMediaCache.frontImage;
+                window.decks[window.activeDeckId].cards[cardIndex].front.audio = window.editMediaCache.frontAudio;
+                window.decks[window.activeDeckId].cards[cardIndex].back.image = window.editMediaCache.backImage;
+                window.decks[window.activeDeckId].cards[cardIndex].back.audio = window.editMediaCache.backAudio;
+
+                window.saveToStorage();
+                window.renderDeck();
+            }
+            window.closeModal();
+        };
+
+        window.playAudio = function(audioBase64, event) {
+            if (event) event.stopPropagation();
+            if (!audioBase64) return;
+            new Audio(audioBase64).play();
+        };
+
+        window.flipCard = function(element) {
+            element.querySelector('.preserve-3d').classList.toggle('flipped');
+        };
+
+        // --- REVIEW STUDY MODE LOGIC ---
+        window.startPracticeAll = function() {
+            const currentDeck = window.decks[window.activeDeckId];
+            if (currentDeck.cards.length === 0) {
+                alert("Please add some cards to this deck first!");
+                return;
+            }
+            window.isPracticeMode = true;
+            window.reviewQueue = [...currentDeck.cards];
+            window.currentQueueIndex = 0;
+            document.getElementById('completion-screen').classList.add('hidden');
+            document.getElementById('study-container').classList.remove('hidden');
+            window.loadCurrentReviewCard();
+        };
+
+        window.revealAnswer = function() {
+            document.getElementById('study-back-section').classList.remove('hidden');
+            document.getElementById('show-answer-box').classList.add('hidden');
+            document.getElementById('rating-buttons-box').classList.remove('hidden');
+
+            const card = window.reviewQueue[window.currentQueueIndex];
+            if (card.back.audio) {
+                window.playAudio(card.back.audio);
+            }
+        };
+
+        window.handleRating = function(quality) {
+            const currentCard = window.reviewQueue[window.currentQueueIndex];
+            const realDeckCard = window.decks[window.activeDeckId].cards.find(c => c.id === currentCard.id);
+
+            if (realDeckCard && !window.isPracticeMode) {
+                let ef = realDeckCard.easiness || 2.5;
+                let reps = realDeckCard.repetitions || 0;
+                let interval = realDeckCard.interval || 0;
+
+                ef = ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+                if (ef < 1.3) ef = 1.3;
+                realDeckCard.easiness = Number(ef.toFixed(2));
+
+                if (quality < 3) {
+                    reps = 0;
+                    interval = 1;
+                } else {
+                    if (reps === 0) {
+                        interval = 1;
+                    } else if (reps === 1) {
+                        interval = (quality === 3) ? 2 : (quality === 5 ? 6 : 4);
+                    } else {
+                        const bonus = (quality === 5) ? 1.3 : 1.0;
+                        interval = Math.round(interval * realDeckCard.easiness * bonus);
+                    }
+                    reps += 1;
+                }
+
+                realDeckCard.repetitions = reps;
+                realDeckCard.interval = interval;
+
+                const nextDueDate = new Date();
+                nextDueDate.setDate(nextDueDate.getDate() + interval);
+                realDeckCard.dueDate = nextDueDate.toISOString();
+                realDeckCard.lastReviewed = new Date().toISOString();
+
+                window.saveToStorage();
+            }
+
+            window.currentQueueIndex++;
+            window.loadCurrentReviewCard();
+        };
+
+        window.exportCSV = function() {
+            const currentDeck = window.decks[window.activeDeckId];
+            if (currentDeck.cards.length === 0) {
+                alert("Nothing to export yet.");
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Front Text,Back Text,Front Image (Base64),Front Audio (Base64),Back Image (Base64),Back Audio (Base64)\r\n";
+
+            currentDeck.cards.forEach(card => {
+                const fText = `"${(card.front.text || '').replace(/"/g, '""')}"`;
+                const bText = `"${(card.back.text || '').replace(/"/g, '""')}"`;
+                const fImg = `"${card.front.image || ''}"`;
+                const fAud = `"${card.front.audio || ''}"`;
+                const bImg = `"${card.back.image || ''}"`;
+                const bAud = `"${card.back.audio || ''}"`;
+                csvContent += `${fText},${bText},${fImg},${fAud},${bImg},${bAud}\r\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `${currentDeck.name.toLowerCase().replace(/\s+/g, '_')}_cards.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+
+        window.exportAnkiAPKG = function() {
+            const currentDeck = window.decks[window.activeDeckId];
+            if (currentDeck.cards.length === 0) {
+                alert("This deck has no cards to export.");
+                return;
+            }
+
+            const zip = new JSZip();
+            const mediaFiles = [];
+            const notes = [];
+
+            currentDeck.cards.forEach((card, i) => {
+                let front = card.front.text || "";
+                let back = card.back.text || "";
+
+                if (card.front.image) {
+                    const filename = `img_front_${i}.png`;
+                    mediaFiles.push({ filename, data: card.front.image });
+                    front += `<br><img src="${filename}">`;
+                }
+                if (card.front.audio) {
+                    const filename = `aud_front_${i}.mp3`;
+                    mediaFiles.push({ filename, data: card.front.audio });
+                    front += `[sound:${filename}]`;
+                }
+                if (card.back.image) {
+                    const filename = `img_back_${i}.png`;
+                    mediaFiles.push({ filename, data: card.back.image });
+                    back += `<br><img src="${filename}">`;
+                }
+                if (card.back.audio) {
+                    const filename = `aud_back_${i}.mp3`;
+                    mediaFiles.push({ filename, data: card.back.audio });
+                    back += `[sound:${filename}]`;
+                }
+                notes.push(`${front}\t${back}`);
+            });
+
+            const mediaJSON = {};
+            mediaFiles.forEach((file, i) => {
+                mediaJSON[i] = file.filename;
+                const blob = base64ToBlob(file.data);
+                zip.file(file.filename, blob);
+            });
+            zip.file("media", JSON.stringify(mediaJSON));
+            zip.file("notes.txt", notes.join("\n"));
+            
+            zip.generateAsync({ type: "blob" }).then(function(content) {
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(content);
+                link.download = `${currentDeck.name.replace(/\s+/g, '_')}.apkg`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        };
+
+        // ==================== INTERNAL HELPER RENDERING METHODS ====================
+
+        window.populateDeckSelector = function() {
+            const selector = document.getElementById('deck-select');
+            selector.innerHTML = Object.keys(window.decks).map(id => {
+                const count = window.decks[id].cards.length;
+                return `<option value="${id}" ${id === window.activeDeckId ? 'selected' : ''}>${window.decks[id].name} (${count} cards)</option>`;
+            }).join('');
+        };
+
+        window.populateReviewDeckSelector = function() {
+            const selector = document.getElementById('review-deck-select');
+            selector.innerHTML = Object.keys(window.decks).map(id => {
+                const count = window.decks[id].cards.length;
+                return `<option value="${id}" ${id === window.activeDeckId ? 'selected' : ''}>${window.decks[id].name} (${count} cards)</option>`;
+            }).join('');
+        };
+
+        window.updateDueCounters = function() {
+             const allCards = Object.values(window.decks).flatMap(deck => deck.cards);
+             const now = new Date();
+             const dueCount = allCards.filter(c => new Date(c.dueDate) <= now).length;
+             document.getElementById('due-counter-badge').textContent = dueCount;
+        };
+
+        window.renderDeck = function() {
+            const grid = document.getElementById('deck-grid');
+            const counter = document.getElementById('card-count');
+            const emptyState = document.getElementById('empty-state');
+            const activeTitle = document.getElementById('active-deck-title');
+            
+            const currentDeck = window.decks[window.activeDeckId];
+            activeTitle.textContent = currentDeck.name;
+            counter.textContent = currentDeck.cards.length;
+
+            if (currentDeck.cards.length === 0) {
+                grid.innerHTML = '';
+                grid.appendChild(emptyState);
+                return;
+            }
+
+            if (emptyState) emptyState.remove();
+
+            grid.innerHTML = currentDeck.cards.map(card => {
+                const hasFrontImg = card.front.image ? `<img src="${card.front.image}" class="max-h-20 mx-auto rounded object-contain border my-1">` : '';
+                const hasBackImg = card.back.image ? `<img src="${card.back.image}" class="max-h-20 mx-auto rounded object-contain border my-1">` : '';
+                const hasFrontAudio = card.front.audio ? `<button onclick="playAudio('${card.front.audio}', event)" class="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center"><i class="fa-solid fa-volume-high"></i></button>` : '';
+                const hasBackAudio = card.back.audio ? `<button onclick="playAudio('${card.back.audio}', event)" class="w-7 h-7 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center"><i class="fa-solid fa-volume-high"></i></button>` : '';
+
+                return `
+                    <div class="perspective h-64 w-full cursor-pointer" onclick="flipCard(this)">
+                        <div class="preserve-3d relative w-full h-full duration-500">
+                            
+                            <!-- FRONT -->
+                            <div class="absolute inset-0 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md p-4 flex flex-col justify-between backface-hidden">
+                                <div class="flex justify-between items-center">
+                                    ${window.getDueBadge(card.dueDate)}
+                                    <div class="flex gap-1.5">
+                                        <button onclick="openEditModal('${card.id}', event)" class="text-slate-400 hover:text-blue-600 p-1 text-xs"><i class="fa-solid fa-pen"></i></button>
+                                        <button onclick="deleteCard('${card.id}', event)" class="text-slate-400 hover:text-red-600 p-1 text-xs"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </div>
+                                <div class="text-center flex-grow flex flex-col justify-center items-center px-1">
+                                    ${hasFrontImg}
+                                    <h4 class="text-base font-bold text-slate-800 break-words max-w-full">${card.front.text || '<span class="text-slate-300 italic">Empty</span>'}</h4>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-slate-400 border-t pt-2">
+                                    <span><i class="fa-solid fa-arrows-rotate mr-1"></i>Flip</span>
+                                    ${hasFrontAudio}
+                                </div>
+                            </div>
+
+                            <!-- BACK -->
+                            <div class="absolute inset-0 bg-slate-900 text-white rounded-2xl p-4 flex flex-col justify-between backface-hidden rotate-y-180">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Definition</span>
+                                    <div class="flex gap-1.5">
+                                        <button onclick="openEditModal('${card.id}', event)" class="text-slate-400 hover:text-blue-400 p-1 text-xs"><i class="fa-solid fa-pen"></i></button>
+                                        <button onclick="deleteCard('${card.id}', event)" class="text-slate-400 hover:text-red-400 p-1 text-xs"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </div>
+                                <div class="text-center flex-grow flex flex-col justify-center items-center px-1">
+                                    ${hasBackImg}
+                                    <p class="text-xs font-medium text-slate-200 leading-relaxed max-h-24 overflow-y-auto break-words w-full">${card.back.text || '<span class="text-slate-500 italic">Empty</span>'}</p>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-slate-400 border-t border-slate-800 pt-2">
+                                    <span><i class="fa-solid fa-arrows-rotate mr-1"></i>Flip</span>
+                                    ${hasBackAudio}
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        };
+
+        window.initReviewSession = function() {
+            const now = new Date();
+            window.isPracticeMode = false;
+            
+            const currentDeck = window.decks[window.activeDeckId];
+            window.reviewQueue = currentDeck.cards.filter(c => new Date(c.dueDate) <= now);
+            window.currentQueueIndex = 0;
+
+            const studyContainer = document.getElementById('study-container');
+            const completionScreen = document.getElementById('completion-screen');
+
+            if (window.reviewQueue.length === 0) {
+                studyContainer.classList.add('hidden');
+                completionScreen.classList.remove('hidden');
+                document.getElementById('session-progress').textContent = "0 of 0";
+            } else {
+                completionScreen.classList.add('hidden');
+                studyContainer.classList.remove('hidden');
+                window.loadCurrentReviewCard();
+            }
+        };
+
+        window.loadCurrentReviewCard = function() {
+            if (window.currentQueueIndex >= window.reviewQueue.length) {
+                document.getElementById('study-container').classList.add('hidden');
+                document.getElementById('completion-screen').classList.remove('hidden');
+                window.updateDueCounters();
+                return;
+            }
+
+            const card = window.reviewQueue[window.currentQueueIndex];
+            document.getElementById('session-progress').textContent = `${window.currentQueueIndex + 1} of ${window.reviewQueue.length}`;
+            
+            document.getElementById('study-back-section').classList.add('hidden');
+            document.getElementById('rating-buttons-box').classList.add('hidden');
+            document.getElementById('show-answer-box').classList.remove('hidden');
+
+            document.getElementById('study-text').textContent = card.front.text || '';
+            const imgBox = document.getElementById('study-image-container');
+            imgBox.innerHTML = card.front.image ? `<img src="${card.front.image}" class="max-h-40 mx-auto rounded-xl object-contain shadow-sm border">` : '';
+
+            const audBox = document.getElementById('study-audio-container');
+            audBox.innerHTML = card.front.audio ? `<button onclick="playAudio('${card.front.audio}')" class="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full text-xs font-semibold flex items-center gap-1.5 transition"><i class="fa-solid fa-volume-high"></i> Listen</button>` : '';
+
+            document.getElementById('study-back-text').textContent = card.back.text || '';
+            const backImgBox = document.getElementById('study-back-image-container');
+            backImgBox.innerHTML = card.back.image ? `<img src="${card.back.image}" class="max-h-32 mx-auto rounded-xl object-contain shadow-sm border">` : '';
+
+            const backAudBox = document.getElementById('study-back-audio-container');
+            backAudBox.innerHTML = card.back.audio ? `<button onclick="playAudio('${card.back.audio}')" class="px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition"><i class="fa-solid fa-volume-high"></i> Pronunciation</button>` : '';
+        };
+
+        function base64ToBlob(base64, contentType = '') {
+            const sliceSize = 1024;
+            const byteCharacters = atob(base64.split(',')[1] || base64);
+            const byteArrays = [];
+
+            for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+                const slice = byteCharacters.slice(offset, offset + sliceSize);
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                byteArrays.push(byteArray);
+            }
+            return new Blob(byteArrays, { type: contentType });
+        }
+
+        window.getDueBadge = function(dueDateStr) {
+            const now = new Date();
+            const due = new Date(dueDateStr);
+            const diffHours = (due - now) / (1000 * 60 * 60);
+
+            if (diffHours <= 0) {
+                return `<span class="bg-red-50 text-red-600 border border-red-100 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="fa-solid fa-bell mr-1"></i>Due Today</span>`;
+            } else if (diffHours <= 24) {
+                return `<span class="bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="fa-regular fa-clock mr-1"></i>Due Tomorrow</span>`;
+            } else {
+                const days = Math.ceil(diffHours / 24);
+                return `<span class="bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-bold px-2 py-0.5 rounded-full"><i class="fa-solid fa-shield-halved mr-1"></i>In ${days} days</span>`;
+            }
+        };
+
+        window.clearSingleForm = function() {
+            document.getElementById('front-text').value = '';
+            document.getElementById('back-text').value = '';
+            document.getElementById('front-image-file').value = '';
+            document.getElementById('back-image-file').value = '';
+            document.getElementById('front-audio-file').value = '';
+            document.getElementById('back-audio-file').value = '';
+            document.getElementById('front-image-label').textContent = 'Upload Photo';
+            document.getElementById('back-image-label').textContent = 'Upload Photo';
+            document.getElementById('front-audio-label').textContent = 'Upload Audio';
+            document.getElementById('back-audio-label').textContent = 'Upload Audio';
+            window.tempMedia = { frontImage: '', frontAudio: '', backImage: '', backAudio: '' };
+        };
+    </script>
+</body>
+</html>
